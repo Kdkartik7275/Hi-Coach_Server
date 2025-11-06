@@ -9,107 +9,95 @@ const searchCoaches = async (req, res) => {
   try {
     const { sport, search, lat, lon, maxDistance = 100 } = req.query;
 
-    // Validate user location
-    if (!lat || !lon) {
-      return res.status(400).json({ 
-        error: "User location (lat, lon) is required for search" 
-      });
-    }
-
-    const userLat = parseFloat(lat);
-    const userLon = parseFloat(lon);
+    const hasLocation = lat && lon;
+    const userLat = hasLocation ? parseFloat(lat) : null;
+    const userLon = hasLocation ? parseFloat(lon) : null;
     const maxDist = parseFloat(maxDistance);
 
-    // Build MongoDB query
+    // 🧱 Build MongoDB query
     const query = {};
 
-    // 1. Filter by sport if provided
+    // 1️⃣ Filter by sport if provided
     if (sport) {
       query.sports = { $in: [sport] };
     }
 
-    // 2. Filter by name search if provided
-    if (search) {
-      query.$or = [
-        { name: { $regex: search, $options: "i" } },
-        { firstName: { $regex: search, $options: "i" } },
-        { lastName: { $regex: search, $options: "i" } },
-      ];
+    // 2️⃣ Filter by name if provided (search in fullName)
+    if (search && search.trim() !== "") {
+      query.fullName = { $regex: new RegExp(search.trim(), "i") };
     }
 
-    // Fetch all matching coaches
-    const allCoaches = await Coach.find(query);
+    // 🧭 Fetch all matching coaches
+    const allCoaches = await Coach.find(query).lean();
 
-    if (allCoaches.length === 0) {
-      return res.status(200).json({ 
+    if (!allCoaches || allCoaches.length === 0) {
+      return res.status(200).json({
         message: "No coaches found matching your criteria",
         coaches: [],
-        areas: []
+        areas: [],
       });
     }
 
-    // 3. Calculate distance for each coach and filter by proximity
-    const coachesWithDistance = allCoaches
-      .map((coach) => {
-        if (!coach.coachingAreas || coach.coachingAreas.length === 0) {
-          return null;
-        }
+    // 3️⃣ If user location provided → filter by distance
+    let coachesWithDistance = allCoaches;
 
-        // Find the nearest coaching area for this coach
-        let minDistance = Infinity;
-        let nearestArea = null;
+    if (hasLocation) {
+      coachesWithDistance = allCoaches
+        .map((coach) => {
+          if (!coach.coachingAreas || coach.coachingAreas.length === 0) return null;
 
-        coach.coachingAreas.forEach((area) => {
-          const distance = calculateDistance(
-            userLat,
-            userLon,
-            area.latitude,
-            area.longitude
-          );
+          let minDistance = Infinity;
+          let nearestArea = null;
 
-          if (distance < minDistance) {
-            minDistance = distance;
-            nearestArea = area;
+          coach.coachingAreas.forEach((area) => {
+            if (!area.latitude || !area.longitude) return;
+
+            const distance = calculateDistance(
+              userLat,
+              userLon,
+              parseFloat(area.latitude),
+              parseFloat(area.longitude)
+            );
+
+            if (distance < minDistance) {
+              minDistance = distance;
+              nearestArea = area;
+            }
+          });
+
+          if (minDistance <= maxDist) {
+            return {
+              ...coach,
+              distance: parseFloat(minDistance.toFixed(2)),
+              nearestArea,
+            };
           }
-        });
 
-        // Only include coaches within max distance
-        if (minDistance <= maxDist) {
-          return {
-            ...coach.toObject(),
-            distance: minDistance,
-            nearestArea: nearestArea,
-          };
-        }
+          return null;
+        })
+        .filter(Boolean);
 
-        return null;
-      })
-      .filter(Boolean); // Remove null entries
-
-    // 4. Sort by distance (nearest first)
-    coachesWithDistance.sort((a, b) => a.distance - b.distance);
-
-    if (coachesWithDistance.length === 0) {
-      return res.status(404).json({
-        message: `No coaches found within ${maxDist} km`,
-        coaches: [],
-        areas: []
-      });
+      // Sort by distance (nearest first)
+      coachesWithDistance.sort((a, b) => a.distance - b.distance);
     }
 
-    // 5. Extract unique areas
-    const uniqueAreas = Array.from(
-      new Set(
-        coachesWithDistance
-          .map((coach) => JSON.stringify(coach.nearestArea))
-      )
-    ).map((area) => JSON.parse(area));
+    // 4️⃣ Extract unique nearest areas if location provided
+    const uniqueAreas = hasLocation
+      ? Array.from(
+          new Set(
+            coachesWithDistance.map((coach) => JSON.stringify(coach.nearestArea))
+          )
+        ).map((area) => JSON.parse(area))
+      : [];
 
+    // ✅ Send final response
     res.status(200).json({
+      success: true,
+      message: "Coaches fetched successfully",
       coaches: coachesWithDistance,
       areas: uniqueAreas,
       count: coachesWithDistance.length,
-      searchRadius: maxDist,
+      searchRadius: hasLocation ? maxDist : null,
     });
   } catch (error) {
     console.error("Error searching coaches:", error);
