@@ -11,6 +11,7 @@ const searchRoutes = require("./routes/searchRoutes");
 const sessionRoutes = require("./routes/sessionRoutes");
 const chatRoomRoutes = require("./routes/chatRoutes");
 const messagesRoutes = require("./routes/messageRoutes");
+const reviewRoutes = require("./routes/reviewRoute");
 
 dotenv.config();
 connectDB();
@@ -41,44 +42,44 @@ io.on("connection", (socket) => {
     const { chatRoomId, senderId, content, messageType, mediaUrl, timestamp } = messageData;
 
     try {
-        // Save message in the database
-        const Message = require("./models/Message");
-        let messageTime = new Date(timestamp);
-        messageTime = new Date(messageTime.getTime() - messageTime.getTimezoneOffset() * 60000);
+      // Save message in the database
+      const Message = require("./models/Message");
+      let messageTime = new Date(timestamp);
+      messageTime = new Date(messageTime.getTime() - messageTime.getTimezoneOffset() * 60000);
 
-        
-        const newMessage = new Message({
-            chatRoomId,
-            senderId,
-            content,
-            messageType,
-            mediaUrl,
-            isRead: false,
-            timestamp: messageTime,
 
+      const newMessage = new Message({
+        chatRoomId,
+        senderId,
+        content,
+        messageType,
+        mediaUrl,
+        isRead: false,
+        timestamp: messageTime,
+
+      });
+
+      await newMessage.save();
+
+      const ChatRoom = require("./models/ChatRoom");
+      await ChatRoom.findByIdAndUpdate(chatRoomId, {
+        message: content,
+        createdAt: messageTime,
+      });
+
+      const chatRoom = await ChatRoom.findById(chatRoomId);
+      if (chatRoom) {
+        chatRoom.members.forEach((member) => {
+          const recipientSocketId = onlineUsers.get(member);
+          if (recipientSocketId && recipientSocketId !== socket.id) {
+            io.to(recipientSocketId).emit("receiveMessage", newMessage);
+          }
         });
-
-        await newMessage.save();
-
-        const ChatRoom = require("./models/ChatRoom");
-        await ChatRoom.findByIdAndUpdate(chatRoomId, {
-            message: content, 
-            createdAt:messageTime, 
-        });
-
-        const chatRoom = await ChatRoom.findById(chatRoomId);
-        if (chatRoom) {
-            chatRoom.members.forEach((member) => {
-                const recipientSocketId = onlineUsers.get(member);
-                if (recipientSocketId && recipientSocketId !== socket.id) {
-                    io.to(recipientSocketId).emit("receiveMessage", newMessage);
-                }
-            });
-        }
+      }
     } catch (error) {
-        console.error("Error in sendMessage:", error);
+      console.error("Error in sendMessage:", error);
     }
-});
+  });
 
 
 
@@ -136,7 +137,7 @@ io.on("connection", (socket) => {
   });
 
 
-  
+
 
   // Handle user disconnect
   socket.on("disconnect", () => {
@@ -164,6 +165,7 @@ app.use("/api/search", searchRoutes);
 app.use("/api/session", sessionRoutes);
 app.use("/api/chats", chatRoomRoutes);
 app.use("/api/messages", messagesRoutes);
+app.use("/api/reviews", reviewRoutes);
 
 const PORT = process.env.PORT || 5000;
 
