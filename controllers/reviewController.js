@@ -10,7 +10,7 @@ exports.createReview = async (req, res) => {
 
         const existingReview = await Review.findOne({ coachId, userId });
         if (existingReview) {
-            return res.status(400).json({ message: "You have already reviewed this coach" });
+            return res.status(200).json({ message: "You have already reviewed this coach" });
         }
 
         const newReview = new Review({

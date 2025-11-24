@@ -1,0 +1,93 @@
+const TrainingProgram = require("../models/trainingProgram");
+
+// =======================
+// CREATE PROGRAM
+// =======================
+exports.createProgram = async (req, res) => {
+  try {
+    const newProgram = new TrainingProgram(req.body);
+    await newProgram.save();
+
+    res.status(201).json({
+      success: true,
+      message: "Training program created successfully",
+      data: newProgram,
+    });
+  } catch (error) {
+    console.log("Create Program Error:", error);
+    res.status(500).json({ success: false, message: "Server Error", error });
+  }
+};
+
+// =======================
+// GET ALL PROGRAMS BY COACH
+// =======================
+exports.getProgramsByCoach = async (req, res) => {
+  try {
+    const { coachId } = req.params;
+
+    const programs = await TrainingProgram.find({ coachId }).sort({
+      createdAt: -1,
+    });
+
+    res.status(200).json({ success: true, data: programs });
+  } catch (error) {
+    console.log("Get Programs Error:", error);
+    res.status(500).json({ success: false, message: "Server Error", error });
+  }
+};
+
+// =======================
+// UPDATE PROGRAM
+// =======================
+exports.updateProgram = async (req, res) => {
+  try {
+    const { programId } = req.params;
+
+    const updated = await TrainingProgram.findByIdAndUpdate(
+      programId,
+      req.body,
+      { new: true }
+    );
+
+    if (!updated) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Program not found" });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Program updated successfully",
+      data: updated,
+    });
+  } catch (error) {
+    console.log("Update Program Error:", error);
+    res.status(500).json({ success: false, message: "Server Error", error });
+  }
+};
+
+// =======================
+// DELETE PROGRAM
+// =======================
+exports.deleteProgram = async (req, res) => {
+  try {
+    const { programId } = req.params;
+
+    const deleted = await TrainingProgram.findByIdAndDelete(programId);
+
+    if (!deleted) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Program not found" });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Program deleted successfully",
+    });
+  } catch (error) {
+    console.log("Delete Program Error:", error);
+    res.status(500).json({ success: false, message: "Server Error", error });
+  }
+};

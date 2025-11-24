@@ -35,7 +35,7 @@ const coachSchema = new mongoose.Schema({
   email: { type: String, required: true, unique: true },
   fullName: { type: String, required: true },
   userId: { type: String, required: true, unique: true },
-  phone: { type: String, required: true },
+  phone: { type: String },
   bio: { type: String, required: true },
   gender: { type: String, enum: ["Male", "Female", "Other"] },
   userType: { type: String, enum: ["Coach", "Admin", "User"] },
@@ -43,7 +43,7 @@ const coachSchema = new mongoose.Schema({
     type: [String],
     default: []
   },
-  dob: { type: String, required: true },
+  dob: { type: String },
   sports: { type: [String], required: true },
   createdAt: { type: Date, default: Date.now, index: true },
   coachingAreas: { type: [coachingAreaSchema], default: [] },
