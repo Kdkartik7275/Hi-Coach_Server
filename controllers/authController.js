@@ -101,31 +101,98 @@ const verifyToken = (req, res) => {
   }
 };
 
-const forgotPassword = async (req, res) => {
-  try {
-    const { email, newPassword } = req.body;
+// Store reset tokens temporarily (in production, use Redis or database)
+const resetTokens = new Map();
 
-    if (!email || !newPassword) {
-      return res
-        .status(400)
-        .json({ message: "Email and new password are required" });
+const requestPasswordReset = async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({ message: "Email is required" });
     }
 
     const user = await User.findOne({ email });
     if (!user) {
-      return res.status(404).json({ message: "User not found" });
+      // Don't reveal if user exists
+      return res.status(200).json({ 
+        message: "If the email exists, a reset token has been sent" 
+      });
     }
 
-    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    // Generate reset token
+    const crypto = require("crypto");
+    const resetToken = crypto.randomBytes(32).toString("hex");
+    const hashedToken = crypto.createHash("sha256").update(resetToken).digest("hex");
 
-    user.password = hashedPassword;
-    await user.save();
+    // Store token with expiry (10 minutes)
+    resetTokens.set(hashedToken, {
+      userId: user.userId,
+      expiresAt: Date.now() + 10 * 60 * 1000,
+    });
 
-    res.status(200).json({ message: "Password reset successfully" });
+    // TODO: Send email with resetToken
+    // For now, return it (REMOVE IN PRODUCTION)
+    console.log("Reset token for", email, ":", resetToken);
+
+    res.status(200).json({ 
+      message: "If the email exists, a reset token has been sent",
+      // REMOVE THIS IN PRODUCTION - only for testing
+      resetToken: process.env.NODE_ENV === "development" ? resetToken : undefined,
+    });
   } catch (error) {
-    console.error("Forgot Password Error:", error);
-    res.status(500).json({ message: "Server error", error: error.message });
+    console.error("Password Reset Request Error:", error);
+    res.status(500).json({ message: "Server error" });
   }
 };
 
-module.exports = { register, login, getAllUsers, verifyToken, forgotPassword };
+const resetPassword = async (req, res) => {
+  try {
+    const { email, resetToken, newPassword } = req.body;
+
+    if (!email || !resetToken || !newPassword) {
+      return res.status(400).json({ 
+        message: "Email, reset token, and new password are required" 
+      });
+    }
+
+    // Hash the provided token
+    const crypto = require("crypto");
+    const hashedToken = crypto.createHash("sha256").update(resetToken).digest("hex");
+
+    // Check if token exists and is valid
+    const tokenData = resetTokens.get(hashedToken);
+    if (!tokenData || tokenData.expiresAt < Date.now()) {
+      resetTokens.delete(hashedToken);
+      return res.status(400).json({ message: "Invalid or expired reset token" });
+    }
+
+    // Find user
+    const user = await User.findOne({ email, userId: tokenData.userId });
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // Update password
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    user.password = hashedPassword;
+    await user.save();
+
+    // Delete used token
+    resetTokens.delete(hashedToken);
+
+    res.status(200).json({ message: "Password reset successfully" });
+  } catch (error) {
+    console.error("Password Reset Error:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+module.exports = { 
+  register, 
+  login, 
+  getAllUsers, 
+  verifyToken, 
+  requestPasswordReset, 
+  resetPassword 
+};

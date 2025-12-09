@@ -20,6 +20,15 @@ const calculateRefund = (enrollment) => {
 exports.enrollStudent = async (req, res) => {
   try {
     const { studentId, programId, startDate, slot, paymentType } = req.body;
+    const authenticatedUserId = req.user.userId;
+
+    // Ensure student can only enroll themselves
+    if (studentId !== authenticatedUserId) {
+      return res.status(403).json({ 
+        message: "Forbidden: You can only enroll yourself" 
+      });
+    }
+
     console.log("Start Date:", startDate);
 
     const program = await TrainingProgram.findById(programId);
@@ -86,9 +95,21 @@ exports.markAttendance = async (req, res) => {
   try {
     const { enrollmentId, sessionId } = req.params;
     const { attendance } = req.body;
+    const authenticatedUserId = req.user.userId;
 
     const today = new Date();
     const enrollment = await Enrollment.findById(enrollmentId);
+
+    if (!enrollment) {
+      return res.status(404).json({ message: "Enrollment not found" });
+    }
+
+    // Ensure only the coach of this enrollment can mark attendance
+    if (enrollment.coachId !== authenticatedUserId) {
+      return res.status(403).json({ 
+        message: "Forbidden: Only the assigned coach can mark attendance" 
+      });
+    }
 
     const session = enrollment.sessions.id(sessionId);
 
@@ -127,10 +148,18 @@ exports.cancelEnrollment = async (req, res) => {
   try {
     const { enrollmentId } = req.params;
     const { reason } = req.body;
+    const authenticatedUserId = req.user.userId;
 
     const enrollment = await Enrollment.findById(enrollmentId);
     if (!enrollment)
       return res.status(404).json({ message: "Enrollment not found" });
+
+    // Ensure only the student can cancel their own enrollment
+    if (enrollment.studentId !== authenticatedUserId) {
+      return res.status(403).json({ 
+        message: "Forbidden: You can only cancel your own enrollments" 
+      });
+    }
 
     if (enrollment.enrollmentStatus === "cancelled") {
       return res.status(400).json({ message: "Already cancelled" });
@@ -169,10 +198,18 @@ exports.cancelEnrollment = async (req, res) => {
 exports.cancelSession = async (req, res) => {
   try {
     const { enrollmentId, sessionId } = req.params;
+    const authenticatedUserId = req.user.userId;
 
     const enrollment = await Enrollment.findById(enrollmentId);
     if (!enrollment)
       return res.status(404).json({ message: "Enrollment not found" });
+
+    // Ensure only the coach can cancel sessions
+    if (enrollment.coachId !== authenticatedUserId) {
+      return res.status(403).json({ 
+        message: "Forbidden: Only the assigned coach can cancel sessions" 
+      });
+    }
 
     const session = enrollment.sessions.id(sessionId);
     if (!session) return res.status(404).json({ message: "Session not found" });
@@ -232,6 +269,14 @@ exports.markProgramComplete = async (req, res) => {
 exports.getStudentEnrollments = async (req, res) => {
   try {
     const { studentId } = req.params;
+    const authenticatedUserId = req.user.userId;
+
+    // Ensure user can only access their own enrollments
+    if (studentId !== authenticatedUserId) {
+      return res.status(403).json({ 
+        message: "Forbidden: You can only access your own enrollments" 
+      });
+    }
 
     const enrollments = await Enrollment.find({ studentId }).populate(
       "programId"
@@ -254,6 +299,14 @@ exports.getStudentEnrollments = async (req, res) => {
 exports.getCoachEnrollments = async (req, res) => {
   try {
     const { coachId } = req.params;
+    const authenticatedUserId = req.user.userId;
+
+    // Ensure coach can only access their own enrollments
+    if (coachId !== authenticatedUserId) {
+      return res.status(403).json({ 
+        message: "Forbidden: You can only access your own enrollments" 
+      });
+    }
 
     const enrollments = await Enrollment.find({ coachId }).populate(
       "programId"

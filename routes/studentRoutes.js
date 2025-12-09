@@ -1,10 +1,16 @@
 const express = require("express");
 const router = express.Router();
 const studentController = require("../controllers/studentController");
+const authMiddleware = require("../middleware/authMiddleware");
+const { authorizeOwner, authorizeStudent } = require("../middleware/authorizationMiddleware");
+const { userIdValidation } = require("../middleware/validationMiddleware");
 
-router.post("/", studentController.createStudent);
-router.get("/:userId", studentController.getStudentByUserId);
-router.put("/:userId", studentController.updateStudent);
-router.delete("/:userId", studentController.deleteStudent);
+// All routes require authentication
+router.use(authMiddleware);
+
+router.post("/", authorizeStudent, studentController.createStudent);
+router.get("/:userId", userIdValidation, studentController.getStudentByUserId);
+router.put("/:userId", authorizeOwner, userIdValidation, studentController.updateStudent);
+router.delete("/:userId", authorizeOwner, userIdValidation, studentController.deleteStudent);
 
 module.exports = router;

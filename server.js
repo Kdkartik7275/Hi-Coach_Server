@@ -1,8 +1,12 @@
 const express = require("express");
 const cors = require("cors");
 const dotenv = require("dotenv");
-const http = require("http"); // Import HTTP module
-const socketIo = require("socket.io"); // Import socket.io
+const http = require("http");
+const socketIo = require("socket.io");
+const helmet = require("helmet");
+const rateLimit = require("express-rate-limit");
+const mongoSanitize = require("express-mongo-sanitize");
+const xss = require("xss-clean");
 const connectDB = require("./config/db");
 const authRoutes = require("./routes/authRoutes");
 const coachRoutes = require("./routes/coachRoutes");
@@ -19,36 +23,66 @@ dotenv.config();
 connectDB();
 
 const app = express();
-const server = http.createServer(app); // Create an HTTP server
+const server = http.createServer(app);
+
+// Configure allowed origins
+const allowedOrigins = process.env.ALLOWED_ORIGINS 
+  ? process.env.ALLOWED_ORIGINS.split(',') 
+  : ['http://localhost:3000'];
+
 const io = socketIo(server, {
   cors: {
-    origin: "*",
+    origin: allowedOrigins,
+    credentials: true,
   },
 });
 
 // Store active users
 let onlineUsers = new Map();
 
+// Socket authentication middleware
+const socketAuthMiddleware = require("./middleware/socketAuthMiddleware");
+io.use(socketAuthMiddleware);
+
 // WebSocket logic
 io.on("connection", (socket) => {
-  console.log("A user connected:", socket.id);
+  console.log("A user connected:", socket.id, "UserId:", socket.userId);
 
-  // User joins with userId
-  socket.on("join", (userId) => {
-    console.log(`${userId} joined with socket ID: ${socket.id}`);
-    onlineUsers.set(userId, socket.id);
+  // User joins - use authenticated userId from socket
+  socket.on("join", () => {
+    console.log(`${socket.userId} joined with socket ID: ${socket.id}`);
+    onlineUsers.set(socket.userId, socket.id);
   });
 
   // Handle incoming messages
   socket.on("sendMessage", async (messageData) => {
-    const { chatRoomId, senderId, content, messageType, mediaUrl, timestamp } = messageData;
+    const { chatRoomId, content, messageType, mediaUrl, timestamp } = messageData;
 
     try {
+      // Use authenticated userId from socket, not from client data
+      const senderId = socket.userId;
+
+      // Validate user is member of chat room
+      const ChatRoom = require("./models/ChatRoom");
+      const chatRoom = await ChatRoom.findById(chatRoomId);
+      
+      if (!chatRoom || !chatRoom.members.includes(senderId)) {
+        return socket.emit("error", { message: "Unauthorized: Not a member of this chat room" });
+      }
+
+      // Validate content
+      if (!content || content.trim().length === 0) {
+        return socket.emit("error", { message: "Message content cannot be empty" });
+      }
+
+      if (content.length > 5000) {
+        return socket.emit("error", { message: "Message too long" });
+      }
+
       // Save message in the database
       const Message = require("./models/Message");
       let messageTime = new Date(timestamp);
       messageTime = new Date(messageTime.getTime() - messageTime.getTimezoneOffset() * 60000);
-
 
       const newMessage = new Message({
         chatRoomId,
@@ -58,18 +92,15 @@ io.on("connection", (socket) => {
         mediaUrl,
         isRead: false,
         timestamp: messageTime,
-
       });
 
       await newMessage.save();
 
-      const ChatRoom = require("./models/ChatRoom");
       await ChatRoom.findByIdAndUpdate(chatRoomId, {
         message: content,
         createdAt: messageTime,
       });
 
-      const chatRoom = await ChatRoom.findById(chatRoomId);
       if (chatRoom) {
         chatRoom.members.forEach((member) => {
           const recipientSocketId = onlineUsers.get(member);
@@ -86,28 +117,42 @@ io.on("connection", (socket) => {
 
 
   // Handle read receipt
-  socket.on("markAsRead", async ({ chatRoomId, userId }) => {
-    const Message = require("./models/Message");
-    await Message.updateMany({ chatRoomId, senderId: { $ne: userId } }, { isRead: true });
+  socket.on("markAsRead", async ({ chatRoomId }) => {
+    try {
+      const userId = socket.userId; // Use authenticated userId
 
-    // Notify sender that messages were read
-    const ChatRoom = require("./models/ChatRoom");
-    const chatRoom = await ChatRoom.findById(chatRoomId);
-    chatRoom.members.forEach((member) => {
-      if (member !== userId) {
-        const senderSocketId = onlineUsers.get(member);
-        if (senderSocketId) {
-          io.to(senderSocketId).emit("messagesRead", { chatRoomId });
-        }
+      // Verify user is member of chat room
+      const ChatRoom = require("./models/ChatRoom");
+      const chatRoom = await ChatRoom.findById(chatRoomId);
+      
+      if (!chatRoom || !chatRoom.members.includes(userId)) {
+        return socket.emit("error", { message: "Unauthorized" });
       }
-    });
+
+      const Message = require("./models/Message");
+      await Message.updateMany({ chatRoomId, senderId: { $ne: userId } }, { isRead: true });
+
+      // Notify sender that messages were read
+      chatRoom.members.forEach((member) => {
+        if (member !== userId) {
+          const senderSocketId = onlineUsers.get(member);
+          if (senderSocketId) {
+            io.to(senderSocketId).emit("messagesRead", { chatRoomId });
+          }
+        }
+      });
+    } catch (error) {
+      console.error("Error in markAsRead:", error);
+      socket.emit("error", { message: "Failed to mark messages as read" });
+    }
   });
 
-  socket.on("typing", ({ chatRoomId, userId }) => {
+  socket.on("typing", ({ chatRoomId }) => {
+    const userId = socket.userId; // Use authenticated userId
     const ChatRoom = require("./models/ChatRoom");
     console.log('User typing');
     ChatRoom.findById(chatRoomId).then((chatRoom) => {
-      if (chatRoom) {
+      if (chatRoom && chatRoom.members.includes(userId)) {
         chatRoom.members.forEach((member) => {
           if (member !== userId) {
             const recipientSocketId = onlineUsers.get(member);
@@ -121,11 +166,12 @@ io.on("connection", (socket) => {
   });
 
   // Handle stop typing event
-  socket.on("stopTyping", ({ chatRoomId, userId }) => {
+  socket.on("stopTyping", ({ chatRoomId }) => {
+    const userId = socket.userId; // Use authenticated userId
     const ChatRoom = require("./models/ChatRoom");
     console.log('Stop typing');
     ChatRoom.findById(chatRoomId).then((chatRoom) => {
-      if (chatRoom) {
+      if (chatRoom && chatRoom.members.includes(userId)) {
         chatRoom.members.forEach((member) => {
           if (member !== userId) {
             const recipientSocketId = onlineUsers.get(member);
@@ -143,21 +189,56 @@ io.on("connection", (socket) => {
 
   // Handle user disconnect
   socket.on("disconnect", () => {
-    console.log("User disconnected:", socket.id);
-    onlineUsers.forEach((value, key) => {
-      if (value === socket.id) {
-        onlineUsers.delete(key);
-      }
-    });
+    console.log("User disconnected:", socket.id, "UserId:", socket.userId);
+    if (socket.userId) {
+      onlineUsers.delete(socket.userId);
+    }
   });
 });
 
 
 
 
-// Middleware
-app.use(cors());
-app.use(express.json());
+// Security Middleware
+app.use(helmet()); // Set security headers
+app.use(cors({
+  origin: function (origin, callback) {
+    if (!origin || allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true
+}));
+
+// Rate limiting
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // Limit each IP to 100 requests per windowMs
+  message: "Too many requests from this IP, please try again later.",
+});
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5, // Limit auth attempts
+  message: "Too many login attempts, please try again later.",
+});
+
+app.use("/api/auth/login", authLimiter);
+app.use("/api/auth/register", authLimiter);
+app.use("/api/auth/forgot-password", authLimiter);
+app.use("/api/", limiter);
+
+// Body parser with size limits
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// Data sanitization against NoSQL injection
+app.use(mongoSanitize());
+
+// Data sanitization against XSS
+app.use(xss());
 
 // Routes
 app.use("/api/auth", authRoutes);
