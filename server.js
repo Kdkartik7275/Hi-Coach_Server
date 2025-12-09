@@ -13,6 +13,7 @@ const chatRoomRoutes = require("./routes/chatRoutes");
 const messagesRoutes = require("./routes/messageRoutes");
 const reviewRoutes = require("./routes/reviewRoute");
 const trainingProgramRoutes = require("./routes/trainingProgramRoutes");
+const bookingRoutes = require("./routes/bookingRoutes");
 
 dotenv.config();
 connectDB();
@@ -167,9 +168,10 @@ app.use("/api/session", sessionRoutes);
 app.use("/api/chats", chatRoomRoutes);
 app.use("/api/messages", messagesRoutes);
 app.use("/api/reviews", reviewRoutes);
-app.use("/api/training-program",trainingProgramRoutes)
+app.use("/api/training-program",trainingProgramRoutes);
+app.use("/api/booking",bookingRoutes)
 
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 3000;
 
 
 server.listen(PORT,'0.0.0.0',() => {

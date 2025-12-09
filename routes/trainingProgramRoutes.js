@@ -6,6 +6,7 @@ const {
   getProgramsByCoach,
   updateProgram,
   deleteProgram,
+  getProgramById
 } = require("../controllers/trainingProgramController");
 
 // CREATE program
@@ -19,5 +20,6 @@ router.put("/:programId", updateProgram);
 
 // DELETE program
 router.delete("/:programId", deleteProgram);
+router.get("/:programId", getProgramById);
 
 module.exports = router;

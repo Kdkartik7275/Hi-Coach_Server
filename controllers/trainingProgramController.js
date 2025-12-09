@@ -91,3 +91,28 @@ exports.deleteProgram = async (req, res) => {
     res.status(500).json({ success: false, message: "Server Error", error });
   }
 };
+
+// =======================
+// GET PROGRAM BY ID
+// =======================
+exports.getProgramById = async (req, res) => {
+  try {
+    const { programId } = req.params;
+
+    const program = await TrainingProgram.findById(programId);
+
+    if (!program) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Program not found" });
+    }
+
+    res.status(200).json({
+      success: true,
+      data: program,
+    });
+  } catch (error) {
+    console.log("Get Program By ID Error:", error);
+    res.status(500).json({ success: false, message: "Server Error", error });
+  }
+};
