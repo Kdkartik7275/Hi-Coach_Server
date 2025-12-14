@@ -299,26 +299,35 @@ exports.getStudentEnrollments = async (req, res) => {
 exports.getCoachEnrollments = async (req, res) => {
   try {
     const { coachId } = req.params;
+    const { status } = req.query; // 👈 active / completed / cancelled
     const authenticatedUserId = req.user.userId;
 
-    // Ensure coach can only access their own enrollments
+    // 🔒 Authorization check
     if (coachId !== authenticatedUserId) {
-      return res.status(403).json({ 
-        message: "Forbidden: You can only access your own enrollments" 
+      return res.status(403).json({
+        message: "Forbidden: You can only access your own enrollments",
       });
     }
 
-    const enrollments = await Enrollment.find({ coachId }).populate(
-      "programId"
-    );
+    // 🧠 Dynamic filter
+    const filter = { coachId };
 
-    res.json({
+    if (status) {
+      filter.enrollmentStatus = status;
+    }
+
+    const enrollments = await Enrollment.find(filter)
+      .populate("programId")
+      .sort({ createdAt: -1 });
+
+    res.status(200).json({
       success: true,
       count: enrollments.length,
       data: enrollments,
     });
   } catch (error) {
-    console.log("Get Coach Enrollments Error:", error);
+    console.error("Get Coach Enrollments Error:", error);
     res.status(500).json({ message: "Server error" });
   }
+
 };

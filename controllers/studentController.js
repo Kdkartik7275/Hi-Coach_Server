@@ -26,7 +26,7 @@ exports.getStudentByUserId = async (req, res) => {
   try {
     const student = await Student.findOne({ userId: req.params.userId });
     if (!student) return res.status(404).json({ message: "Student not found" });
-    console.log(student);
+
     res.status(200).json(student);
   } catch (error) {
     res.status(500).json({ error: error.message });
