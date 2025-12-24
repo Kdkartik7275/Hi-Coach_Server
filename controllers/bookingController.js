@@ -325,9 +325,92 @@ exports.getCoachEnrollments = async (req, res) => {
       count: enrollments.length,
       data: enrollments,
     });
+    console.log("Enrollments fetched for coach:", enrollments);
   } catch (error) {
     console.error("Get Coach Enrollments Error:", error);
     res.status(500).json({ message: "Server error" });
   }
 
 };
+
+// ============================================================
+// 8️⃣ COACH ACCEPT / REJECT ENROLLMENT
+// ============================================================
+exports.coachDecisionOnEnrollment = async (req, res) => {
+  try {
+    const { enrollmentId } = req.params;
+    const { decision, reason } = req.body;
+    const authenticatedUserId = req.user.userId;
+
+    if (!["accept", "reject"].includes(decision)) {
+      return res.status(400).json({
+        message: "Invalid decision. Use 'accept' or 'reject'",
+      });
+    }
+
+    const enrollment = await Enrollment.findById(enrollmentId);
+
+    if (!enrollment) {
+      return res.status(404).json({ message: "Enrollment not found" });
+    }
+
+    // 🔒 Ensure only assigned coach can act
+    if (enrollment.coachId !== authenticatedUserId) {
+      return res.status(403).json({
+        message: "Forbidden: Only the assigned coach can take action",
+      });
+    }
+
+    // ⛔ Allow decision only when pending
+    if (enrollment.enrollmentStatus !== "pending") {
+      return res.status(400).json({
+        message: `Enrollment already ${enrollment.enrollmentStatus}`,
+      });
+    }
+
+    // =========================================================
+    // ✅ ACCEPT ENROLLMENT
+    // =========================================================
+    if (decision === "accept") {
+      enrollment.enrollmentStatus = "active";
+    }
+
+    // =========================================================
+    // ❌ REJECT ENROLLMENT
+    // =========================================================
+    if (decision === "reject") {
+      if (!reason) {
+        return res.status(400).json({
+          message: "Rejection reason is required",
+        });
+      }
+
+      enrollment.enrollmentStatus = "cancelled";
+      enrollment.cancellationReason = reason;
+
+      // 💰 Refund if any payment was made
+      if (enrollment.payment.paidAmount > 0) {
+        enrollment.payment.paymentStatus = "refunded";
+        enrollment.payment.refundAmount = enrollment.payment.paidAmount;
+
+        enrollment.payment.transactions.push({
+          amount: enrollment.payment.paidAmount,
+          date: new Date(),
+          type: "refund",
+        });
+      }
+    }
+
+    await enrollment.save();
+
+    res.status(200).json({
+      success: true,
+      message: `Enrollment ${decision}ed successfully`,
+      data: enrollment,
+    });
+  } catch (error) {
+    console.error("Coach Decision Error:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+

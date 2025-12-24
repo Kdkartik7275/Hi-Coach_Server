@@ -1,5 +1,5 @@
 const TrainingProgram = require("../models/trainingProgram");
-
+const Enrollment = require("../models/booking");
 // =======================
 // CREATE PROGRAM
 // =======================
@@ -26,14 +26,22 @@ exports.getProgramsByCoach = async (req, res) => {
   try {
     const { coachId } = req.params;
 
-    const programs = await TrainingProgram.find({ coachId }).sort({
-      createdAt: -1,
-    });
+    const programs = await TrainingProgram.find({
+      coachId,
+      deletedAt: null,
+    }).sort({ createdAt: -1 });
 
-    res.status(200).json({ success: true, data: programs });
+    res.status(200).json({
+      success: true,
+      data: programs,
+    });
   } catch (error) {
     console.log("Get Programs Error:", error);
-    res.status(500).json({ success: false, message: "Server Error", error });
+    res.status(500).json({
+      success: false,
+      message: "Server Error",
+      error,
+    });
   }
 };
 
@@ -74,12 +82,17 @@ exports.deleteProgram = async (req, res) => {
   try {
     const { programId } = req.params;
 
-    const deleted = await TrainingProgram.findByIdAndDelete(programId);
+    const program = await TrainingProgram.findOneAndUpdate(
+      { _id: programId, deletedAt: null },
+      { deletedAt: new Date() },
+      { new: true }
+    );
 
-    if (!deleted) {
-      return res
-        .status(404)
-        .json({ success: false, message: "Program not found" });
+    if (!program) {
+      return res.status(404).json({
+        success: false,
+        message: "Program not found or already deleted",
+      });
     }
 
     res.status(200).json({
@@ -88,6 +101,51 @@ exports.deleteProgram = async (req, res) => {
     });
   } catch (error) {
     console.log("Delete Program Error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server Error",
+      error,
+    });
+  }
+};
+
+exports.getRecommendedPrograms = async (req, res) => {
+  try {
+    const { studentId } = req.params;
+
+    // Get student's past enrollments
+    const enrollments = await Enrollment.find({ studentId })
+      .populate("programId", "sport level");
+
+    if (!enrollments.length) {
+      // If no history, return latest programs
+      const latestPrograms = await TrainingProgram.find({ deletedAt: null })
+        .sort({ createdAt: -1 })
+        .limit(10);
+
+      return res.status(200).json({
+        success: true,
+        message: "No history found. Showing latest programs.",
+        data: latestPrograms,
+      });
+    }
+
+    const sports = enrollments.map(e => e.programId.sport);
+    const enrolledProgramIds = enrollments.map(e => e.programId._id);
+
+    const recommended = await TrainingProgram.find({
+      sport: { $in: sports },
+      _id: { $nin: enrolledProgramIds },
+      deletedAt: null,
+    }).limit(10);
+
+    res.status(200).json({
+      success: true,
+      data: recommended,
+    });
+
+  } catch (error) {
+    console.log("Get Recommended Programs Error:", error);
     res.status(500).json({ success: false, message: "Server Error", error });
   }
 };
