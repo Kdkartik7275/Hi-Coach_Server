@@ -18,6 +18,7 @@ const messagesRoutes = require("./routes/messageRoutes");
 const reviewRoutes = require("./routes/reviewRoute");
 const trainingProgramRoutes = require("./routes/trainingProgramRoutes");
 const bookingRoutes = require("./routes/bookingRoutes");
+const tournamentRoutes = require("./routes/tournamentRoutes");
 
 dotenv.config();
 connectDB();
@@ -252,10 +253,13 @@ app.use("/api/reviews", reviewRoutes);
 app.use("/api/training-program",trainingProgramRoutes);
 app.use("/api/booking",bookingRoutes)
 
+app.use("/api/tournaments", tournamentRoutes);
+
+
 const PORT = process.env.PORT || 3000;
 
 
-server.listen(PORT,'0.0.0.0',() => {
+server.listen(PORT,() => {
   console.log(`Server running on port ${PORT}`);
 });
 

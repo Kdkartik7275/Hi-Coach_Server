@@ -1,5 +1,6 @@
 const TrainingProgram = require("../models/trainingProgram");
 const Enrollment = require("../models/booking");
+const Student = require("../models/student");
 // =======================
 // CREATE PROGRAM
 // =======================
@@ -109,46 +110,54 @@ exports.deleteProgram = async (req, res) => {
   }
 };
 
+
 exports.getRecommendedPrograms = async (req, res) => {
   try {
     const { studentId } = req.params;
 
-    // Get student's past enrollments
-    const enrollments = await Enrollment.find({ studentId })
-      .populate("programId", "sport level");
+    // 1. Get student
+    const student = await Student.findOne({ userId: studentId });
 
-    if (!enrollments.length) {
-      // If no history, return latest programs
-      const latestPrograms = await TrainingProgram.find({ deletedAt: null })
-        .sort({ createdAt: -1 })
-        .limit(10);
-
-      return res.status(200).json({
-        success: true,
-        message: "No history found. Showing latest programs.",
-        data: latestPrograms,
+    if (!student || !student.sports?.length) {
+      return res.status(404).json({
+        success: false,
+        message: "Student or student sport not found",
       });
     }
 
-    const sports = enrollments.map(e => e.programId.sport);
-    const enrolledProgramIds = enrollments.map(e => e.programId._id);
+    // 2. Take ONLY first sport
+    const studentSport = student.sports[0];
 
-    const recommended = await TrainingProgram.find({
-      sport: { $in: sports },
+    // 3. Get enrolled programs (to exclude)
+    const enrollments = await Enrollment.find({ studentId })
+      .select("programId");
+
+    const enrolledProgramIds = enrollments.map(e => e.programId);
+
+    // 4. Get recommended programs
+    const recommendedPrograms = await TrainingProgram.find({
+      sport: studentSport,
       _id: { $nin: enrolledProgramIds },
       deletedAt: null,
-    }).limit(10);
+    })
+      .sort({ createdAt: -1 })
+      .limit(10);
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
-      data: recommended,
+      data: recommendedPrograms,
     });
 
   } catch (error) {
-    console.log("Get Recommended Programs Error:", error);
-    res.status(500).json({ success: false, message: "Server Error", error });
+    console.error("Get Recommended Programs Error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server Error",
+      error,
+    });
   }
 };
+
 
 // =======================
 // GET PROGRAM BY ID

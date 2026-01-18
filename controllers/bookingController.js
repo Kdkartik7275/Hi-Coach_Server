@@ -181,7 +181,7 @@ exports.cancelEnrollment = async (req, res) => {
 
     await enrollment.save();
 
-    res.json({
+    res.status(200).json({
       success: true,
       message: "Program cancelled & refund processed",
       refundAmount,
@@ -336,6 +336,7 @@ exports.getCoachEnrollments = async (req, res) => {
 // ============================================================
 // 8️⃣ COACH ACCEPT / REJECT ENROLLMENT
 // ============================================================
+
 exports.coachDecisionOnEnrollment = async (req, res) => {
   try {
     const { enrollmentId } = req.params;
@@ -348,7 +349,10 @@ exports.coachDecisionOnEnrollment = async (req, res) => {
       });
     }
 
-    const enrollment = await Enrollment.findById(enrollmentId);
+    // 🔹 Populate programId here
+    const enrollment = await Enrollment.findById(enrollmentId).populate(
+      "programId"
+    );
 
     if (!enrollment) {
       return res.status(404).json({ message: "Enrollment not found" });
@@ -389,7 +393,7 @@ exports.coachDecisionOnEnrollment = async (req, res) => {
       enrollment.cancellationReason = reason;
 
       // 💰 Refund if any payment was made
-      if (enrollment.payment.paidAmount > 0) {
+      if (enrollment.payment?.paidAmount > 0) {
         enrollment.payment.paymentStatus = "refunded";
         enrollment.payment.refundAmount = enrollment.payment.paidAmount;
 
@@ -403,14 +407,16 @@ exports.coachDecisionOnEnrollment = async (req, res) => {
 
     await enrollment.save();
 
+    // 🔹 Optional: re-populate after save (safe for consistency)
+    await enrollment.populate("programId");
+
     res.status(200).json({
       success: true,
       message: `Enrollment ${decision}ed successfully`,
-      data: enrollment,
+      data: enrollment, // programId is now full Program object
     });
   } catch (error) {
     console.error("Coach Decision Error:", error);
     res.status(500).json({ message: "Server error" });
   }
 };
-
